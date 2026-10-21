@@ -1,0 +1,35 @@
+[package]
+name = "bluebird"
+version = "0.1.0"
+edition = "2021"
+description = "Bluebird — pure-Rust native desktop HTTP API client"
+authors = ["Bluebird"]
+rust-version = "1.80"
+license = "MIT"
+
+[dependencies]
+eframe = { version = "0.29", default-features = true, features = ["default_fonts", "glow"] }
+egui = "0.29"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "multipart"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.32", features = ["bundled"] }
+arboard = "3"
+keyring = "3"
+rfd = "0.15"
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+anyhow = "1"
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+url = "2"
+log = "0.4"
+env_logger = "0.11"
+
+[dev-dependencies]
+tempfile = "3"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
