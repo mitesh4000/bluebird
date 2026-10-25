@@ -1,0 +1,46 @@
+# Rust build output
+/target/
+**/*.rs.bk
+*.pdb
+
+# Cross-compilation artifacts (e.g. target/x86_64-pc-windows-gnu)
+*.exe
+*.dll
+*.so
+*.dylib
+*.a
+*.lib
+*.o
+
+# Local app data / databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Editor / IDE
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+.flycheck*
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
