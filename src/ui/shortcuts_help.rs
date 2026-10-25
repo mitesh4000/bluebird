@@ -1,6 +1,6 @@
 //! Searchable keyboard shortcuts dialog.
 
-use crate::ui::theme;
+use crate::ui::{icons, theme};
 use eframe::egui;
 
 pub struct Shortcut {
@@ -74,8 +74,13 @@ pub fn show_dialog(ctx: &egui::Context, open: &mut bool, filter: &mut String) {
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.horizontal(|ui| {
-                ui.label("Filter:");
-                ui.text_edit_singleline(filter);
+                ui.label(icons::with_label(icons::SEARCH, "Filter:"));
+                ui.add_sized(
+                    [280.0, theme::CONTROL_HEIGHT],
+                    egui::TextEdit::singleline(filter)
+                        .hint_text("Action or shortcut")
+                        .vertical_align(egui::Align::Center),
+                );
             });
             ui.separator();
             let q = filter.to_lowercase();

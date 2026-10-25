@@ -1,6 +1,6 @@
 //! Stacking toasts with auto-dismiss.
 
-use crate::ui::theme;
+use crate::ui::{icons, theme};
 use eframe::egui;
 use std::time::{Duration, Instant};
 
@@ -62,11 +62,11 @@ impl ToastHost {
         let screen = ctx.screen_rect();
         let mut y = screen.bottom() - 48.0;
         for t in self.toasts.iter().rev() {
-            let color = match t.kind {
-                ToastKind::Info => theme::ACCENT,
-                ToastKind::Success => theme::SUCCESS,
-                ToastKind::Warning => theme::WARNING,
-                ToastKind::Error => theme::ERROR,
+            let (color, icon) = match t.kind {
+                ToastKind::Info => (theme::ACCENT, icons::INFO),
+                ToastKind::Success => (theme::SUCCESS, icons::CHECK),
+                ToastKind::Warning => (theme::WARNING, icons::WARNING),
+                ToastKind::Error => (theme::ERROR, icons::ERROR),
             };
             egui::Area::new(egui::Id::new("toast").with(t.created.elapsed().as_millis()))
                 .fixed_pos(egui::pos2(screen.right() - 360.0, y - 40.0))
@@ -78,7 +78,10 @@ impl ToastHost {
                         // .corner_radius(6.0)
                         .inner_margin(egui::Margin::symmetric(12.0, 8.0))
                         .show(ui, |ui| {
-                            ui.colored_label(theme::TEXT_PRIMARY, &t.message);
+                            ui.colored_label(
+                                theme::TEXT_PRIMARY,
+                                icons::with_label(icon, &t.message),
+                            );
                         });
                 });
             y -= 48.0;

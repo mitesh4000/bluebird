@@ -9,6 +9,7 @@ mod storage;
 mod ui;
 
 use eframe::egui;
+use ui::fonts;
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -22,6 +23,10 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         "Bluebird",
         options,
-        Box::new(|cc| Ok(Box::new(app::BluebirdApp::new(cc)))),
+        Box::new(|cc| {
+            // Install bundled icon fonts before the first frame is drawn.
+            fonts::install(&cc.egui_ctx);
+            Ok(Box::new(app::BluebirdApp::new(cc)))
+        }),
     )
 }

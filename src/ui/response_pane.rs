@@ -2,8 +2,7 @@
 
 use crate::http::models::ResponseData;
 use crate::jsonpath::CopyMode;
-use crate::ui::json_tree;
-use crate::ui::theme;
+use crate::ui::{icons, json_tree, theme};
 use eframe::egui;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -19,11 +18,19 @@ pub enum BodyView {
     Raw,
 }
 
+#[derive(Clone)]
+pub struct SearchMatch {
+    pub path: String,
+}
+
 pub struct ResponsePaneState {
     pub tab: ResponseTab,
     pub body_view: BodyView,
     pub search: String,
     pub copy_mode: CopyMode,
+    pub search_matches: Vec<String>,
+    pub search_index: usize,
+    pub search_dirty: bool,
 }
 
 impl Default for ResponsePaneState {
@@ -33,6 +40,9 @@ impl Default for ResponsePaneState {
             body_view: BodyView::Pretty,
             search: String::new(),
             copy_mode: CopyMode::Js,
+            search_matches: Vec::new(),
+            search_index: 0,
+            search_dirty: true,
         }
     }
 }
@@ -76,11 +86,11 @@ pub fn show(
     ui.horizontal(|ui| {
         let color = theme::status_color(resp.status);
         let icon = if (200..300).contains(&resp.status) {
-            "✓"
+            icons::CHECK
         } else if resp.status >= 400 {
-            "✗"
+            icons::ERROR
         } else {
-            "•"
+            icons::DOT
         };
         ui.colored_label(
             color,
@@ -108,12 +118,42 @@ pub fn show(
                     ui.selectable_value(&mut state.copy_mode, m, m.label());
                 }
                 ui.separator();
-                ui.label("Search:");
-                ui.add(
+                ui.label(icons::with_label(icons::SEARCH, "Search:"));
+                let resp_search = ui.add_sized(
+                    [160.0, theme::CONTROL_HEIGHT],
                     egui::TextEdit::singleline(&mut state.search)
-                        .desired_width(160.0)
-                        .hint_text("Filter…"),
+                        .hint_text("Filter…")
+                        .vertical_align(egui::Align::Center),
                 );
+                if resp_search.changed() {
+                    state.search_dirty = true;
+                    state.search_index = 0;
+                }
+                // Enter in the search box jumps to the next match.
+                let enter_next =
+                    resp_search.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                let go_prev = ui
+                    .add(egui::Button::new(icons::CHEVRON_LEFT))
+                    .on_hover_text("Previous match")
+                    .clicked();
+                let go_next = enter_next
+                    || ui
+                        .add(egui::Button::new(icons::CHEVRON_RIGHT))
+                        .on_hover_text("Next match")
+                        .clicked();
+                if go_prev && !state.search_matches.is_empty() {
+                    state.search_index = if state.search_index == 0 {
+                        state.search_matches.len() - 1
+                    } else {
+                        state.search_index - 1
+                    };
+                }
+                if go_next && !state.search_matches.is_empty() {
+                    state.search_index = (state.search_index + 1) % state.search_matches.len();
+                }
+                if !state.search.is_empty() {
+                    ui.label(format!("{} / {}", if state.search_matches.is_empty() { 0 } else { state.search_index + 1 }, state.search_matches.len()));
+                }
             });
 
             egui::ScrollArea::vertical()

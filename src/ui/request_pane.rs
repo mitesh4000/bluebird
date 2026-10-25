@@ -1,8 +1,13 @@
 //! Request composer pane.
 
 use crate::http::models::*;
-use crate::ui::theme;
+use crate::ui::{icons, theme};
 use eframe::egui;
+
+const METHOD_WIDTH: f32 = 100.0;
+const SEND_WIDTH: f32 = 104.0;
+const COPY_WIDTH: f32 = 140.0;
+const SAVE_WIDTH: f32 = 92.0;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RequestTab {
@@ -30,6 +35,7 @@ pub struct RequestPaneActions {
     pub cancel: bool,
     pub copy_curl: bool,
     pub url_changed: bool,
+    pub save: bool,
 }
 
 pub fn show(
@@ -43,22 +49,31 @@ pub fn show(
         cancel: false,
         copy_curl: false,
         url_changed: false,
+        save: false,
     };
 
     ui.horizontal(|ui| {
+        let height = theme::CONTROL_HEIGHT;
+        let gap = ui.spacing().item_spacing.x;
+
         egui::ComboBox::from_id_salt("method")
             .selected_text(&spec.method)
-            .width(100.0)
+            .width(METHOD_WIDTH)
             .show_ui(ui, |ui| {
                 for m in ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"] {
                     ui.selectable_value(&mut spec.method, m.to_string(), m);
                 }
             });
 
-        let url_edit = ui.add(
+        // Reserve the button widths first, then give the URL input the rest.
+        // Both inputs and buttons use CONTROL_HEIGHT so the row lines up.
+        let reserved = SEND_WIDTH + COPY_WIDTH + SAVE_WIDTH + gap * 3.0;
+        let url_width = (ui.available_width() - reserved).max(160.0);
+        let url_edit = ui.add_sized(
+            [url_width, height],
             egui::TextEdit::singleline(&mut spec.url)
-                .desired_width(ui.available_width() - 220.0)
-                .hint_text("https://api.example.com  ·  or paste a curl command"),
+                .hint_text("https://api.example.com  ·  or paste a curl command")
+                .vertical_align(egui::Align::Center),
         );
         if state.focus_url {
             url_edit.request_focus();
@@ -68,38 +83,66 @@ pub fn show(
             actions.url_changed = true;
         }
 
+        let can_send = !spec.url.trim().is_empty();
+        // Single-input workflow: pressing Enter in the URL field sends the
+        // request immediately. TextEdit reports Enter as lost_focus().
+        let enter_pressed =
+            url_edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+        if enter_pressed && can_send && !sending {
+            actions.send = true;
+        }
+
         if sending {
             if ui
-                .add(egui::Button::new("Cancel").fill(theme::ERROR))
-                .on_hover_text("Esc")
+                .add_sized(
+                    [SEND_WIDTH, height],
+                    egui::Button::new(icons::with_label(icons::CANCEL, "Cancel")),
+                )
+                .on_hover_text("Cancel (Esc)")
                 .clicked()
             {
                 actions.cancel = true;
             }
-        } else {
-            let can_send = !spec.url.trim().is_empty();
-            if ui
-                .add_enabled(can_send, egui::Button::new("Send").fill(theme::ACCENT))
-                .on_hover_text("Ctrl+Enter")
-                .clicked()
-            {
-                actions.send = true;
-            }
+        } else if ui
+            .add_enabled(
+                can_send,
+                egui::Button::new(icons::with_label(icons::SEND, "Send"))
+                    .min_size(egui::vec2(SEND_WIDTH, height)),
+            )
+            .on_hover_text("Send (Enter or Ctrl+Enter)")
+            .clicked()
+        {
+            actions.send = true;
         }
 
         if ui
-            .button("Copy as cURL")
-            .on_hover_text("Ctrl+Shift+C")
+            .add_sized(
+                [COPY_WIDTH, height],
+                egui::Button::new(icons::with_label(icons::COPY, "Copy cURL")),
+            )
+            .on_hover_text("Copy as cURL (Ctrl+Shift+C)")
             .clicked()
         {
             actions.copy_curl = true;
+        }
+        if ui
+            .add_sized(
+                [SAVE_WIDTH, height],
+                egui::Button::new(icons::with_label(icons::SAVE, "Save")),
+            )
+            .clicked()
+        {
+            actions.save = true;
         }
     });
 
     ui.horizontal(|ui| {
         ui.checkbox(&mut spec.ssl_verify, "Verify SSL");
         if !spec.ssl_verify {
-            ui.colored_label(theme::WARNING, "⚠ insecure");
+            ui.colored_label(
+                theme::WARNING,
+                icons::with_label(icons::WARNING, "insecure"),
+            );
         }
         ui.label("Timeout (ms):");
         ui.add(
@@ -131,18 +174,14 @@ fn show_headers(ui: &mut egui::Ui, headers: &mut Vec<HeaderKv>) {
     for (i, h) in headers.iter_mut().enumerate() {
         ui.horizontal(|ui| {
             ui.checkbox(&mut h.enabled, "");
-            ui.add(
-                egui::TextEdit::singleline(&mut h.key)
-                    .desired_width(160.0)
-                    .hint_text("Header"),
-            );
+            text_input(ui, &mut h.key, 160.0, "Header");
             ui.label(":");
-            ui.add(
-                egui::TextEdit::singleline(&mut h.value)
-                    .desired_width(280.0)
-                    .hint_text("Value"),
-            );
-            if ui.small_button("×").clicked() {
+            text_input(ui, &mut h.value, 280.0, "Value");
+            if ui
+                .add(egui::Button::new(icons::CLOSE).frame(false))
+                .on_hover_text("Remove header")
+                .clicked()
+            {
                 remove = Some(i);
             }
         });
@@ -172,7 +211,10 @@ fn show_headers(ui: &mut egui::Ui, headers: &mut Vec<HeaderKv>) {
     if let Some(i) = remove {
         headers.remove(i);
     }
-    if ui.button("+ Add header").clicked() {
+    if ui
+        .button(icons::with_label(icons::ADD, "Add header"))
+        .clicked()
+    {
         headers.push(HeaderKv::new("", ""));
     }
 }
@@ -220,10 +262,14 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
             let mut remove = None;
             for (i, (k, v)) in body.form_fields.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.add(egui::TextEdit::singleline(k).desired_width(160.0).hint_text("key"));
+                    text_input(ui, k, 160.0, "key");
                     ui.label("=");
-                    ui.add(egui::TextEdit::singleline(v).desired_width(240.0).hint_text("value"));
-                    if ui.small_button("×").clicked() {
+                    text_input(ui, v, 240.0, "value");
+                    if ui
+                        .add(egui::Button::new(icons::CLOSE).frame(false))
+                        .on_hover_text("Remove field")
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -231,7 +277,10 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
             if let Some(i) = remove {
                 body.form_fields.remove(i);
             }
-            if ui.button("+ Add field").clicked() {
+            if ui
+                .button(icons::with_label(icons::ADD, "Add field"))
+                .clicked()
+            {
                 body.form_fields.push((String::new(), String::new()));
             }
         }
@@ -239,31 +288,26 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
             let mut remove = None;
             for (i, p) in body.multipart.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
-                    ui.add(
-                        egui::TextEdit::singleline(&mut p.name)
-                            .desired_width(120.0)
-                            .hint_text("name"),
-                    );
+                    text_input(ui, &mut p.name, 120.0, "name");
                     ui.checkbox(&mut p.is_file, "File");
                     if p.is_file {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut p.file_path)
-                                .desired_width(220.0)
-                                .hint_text("path"),
-                        );
-                        if ui.small_button("Browse…").clicked() {
+                        text_input(ui, &mut p.file_path, 220.0, "path");
+                        if ui
+                            .button(icons::with_label(icons::BROWSE, "Browse…"))
+                            .clicked()
+                        {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 p.file_path = path.display().to_string();
                             }
                         }
                     } else {
-                        ui.add(
-                            egui::TextEdit::singleline(&mut p.value)
-                                .desired_width(220.0)
-                                .hint_text("value"),
-                        );
+                        text_input(ui, &mut p.value, 220.0, "value");
                     }
-                    if ui.small_button("×").clicked() {
+                    if ui
+                        .add(egui::Button::new(icons::CLOSE).frame(false))
+                        .on_hover_text("Remove part")
+                        .clicked()
+                    {
                         remove = Some(i);
                     }
                 });
@@ -271,7 +315,10 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
             if let Some(i) = remove {
                 body.multipart.remove(i);
             }
-            if ui.button("+ Add part").clicked() {
+            if ui
+                .button(icons::with_label(icons::ADD, "Add part"))
+                .clicked()
+            {
                 body.multipart.push(FormField {
                     name: String::new(),
                     value: String::new(),
@@ -282,12 +329,11 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
         }
         BodyKind::Binary => {
             ui.horizontal(|ui| {
-                ui.add(
-                    egui::TextEdit::singleline(&mut body.binary_path)
-                        .desired_width(320.0)
-                        .hint_text("File path"),
-                );
-                if ui.button("Browse…").clicked() {
+                text_input(ui, &mut body.binary_path, 320.0, "File path");
+                if ui
+                    .button(icons::with_label(icons::BROWSE, "Browse…"))
+                    .clicked()
+                {
                     if let Some(path) = rfd::FileDialog::new().pick_file() {
                         body.binary_path = path.display().to_string();
                     }
@@ -295,7 +341,7 @@ fn show_body(ui: &mut egui::Ui, body: &mut Body) {
             });
             ui.horizontal(|ui| {
                 ui.label("Content-Type:");
-                ui.text_edit_singleline(&mut body.binary_content_type);
+                text_input(ui, &mut body.binary_content_type, 260.0, "Content-Type");
             });
         }
     }
@@ -319,35 +365,27 @@ fn show_auth(ui: &mut egui::Ui, auth: &mut Auth) {
         AuthKind::Basic => {
             ui.horizontal(|ui| {
                 ui.label("Username:");
-                ui.text_edit_singleline(&mut auth.basic_user);
+                text_input(ui, &mut auth.basic_user, 240.0, "Username");
             });
             ui.horizontal(|ui| {
                 ui.label("Password:");
-                ui.add(egui::TextEdit::singleline(&mut auth.basic_pass).password(true));
+                password_input(ui, &mut auth.basic_pass, 240.0);
             });
         }
         AuthKind::Bearer => {
             ui.horizontal(|ui| {
                 ui.label("Token:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut auth.bearer_token)
-                        .desired_width(360.0)
-                        .password(true),
-                );
+                password_input(ui, &mut auth.bearer_token, 360.0);
             });
         }
         AuthKind::ApiKey => {
             ui.horizontal(|ui| {
                 ui.label("Key name:");
-                ui.text_edit_singleline(&mut auth.api_key_name);
+                text_input(ui, &mut auth.api_key_name, 240.0, "Key name");
             });
             ui.horizontal(|ui| {
                 ui.label("Value:");
-                ui.add(
-                    egui::TextEdit::singleline(&mut auth.api_key_value)
-                        .desired_width(280.0)
-                        .password(true),
-                );
+                password_input(ui, &mut auth.api_key_value, 280.0);
             });
             ui.horizontal(|ui| {
                 ui.label("Add to:");
@@ -356,4 +394,28 @@ fn show_auth(ui: &mut egui::Ui, auth: &mut Auth) {
             });
         }
     }
+}
+
+/// Single-line input with the shared control height so it aligns with buttons.
+fn text_input(
+    ui: &mut egui::Ui,
+    text: &mut String,
+    width: f32,
+    hint: &str,
+) -> egui::Response {
+    ui.add_sized(
+        [width, theme::CONTROL_HEIGHT],
+        egui::TextEdit::singleline(text)
+            .hint_text(hint)
+            .vertical_align(egui::Align::Center),
+    )
+}
+
+fn password_input(ui: &mut egui::Ui, text: &mut String, width: f32) -> egui::Response {
+    ui.add_sized(
+        [width, theme::CONTROL_HEIGHT],
+        egui::TextEdit::singleline(text)
+            .password(true)
+            .vertical_align(egui::Align::Center),
+    )
 }

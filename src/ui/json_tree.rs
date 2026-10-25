@@ -40,11 +40,14 @@ fn show_node(
                         format!("{}  {{ {} }}", path.last().map(|s| s.key.as_str()).unwrap_or(""), count)
                     };
                     let path_str = build_path(path, mode, "res");
+                    let mut rich = egui::RichText::new(label.clone()).color(theme::TEXT_SECONDARY);
+                    let is_match = !search.is_empty() && (matches_search(&label, search) || matches_search(&path_str, search));
+                    if is_match {
+                        rich = rich.underline().background_color(egui::Color32::from_rgba_unmultiplied(255, 255, 0, 60));
+                    }
                     let resp = ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(label).color(theme::TEXT_SECONDARY),
-                        )
-                        .sense(egui::Sense::click()),
+                        egui::Label::new(rich)
+                            .sense(egui::Sense::click()),
                     );
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -63,7 +66,7 @@ fn show_node(
                         let mut child_path = path.to_vec();
                         child_path.push(PathSegment::key((*k).clone()));
                         let v = &map[*k];
-                        ui.horizontal(|ui| {
+                        if matches!(v, Value::Object(_) | Value::Array(_)) {
                             let key_path = build_path(&child_path, mode, "res");
                             let key_resp = ui.add(
                                 egui::Label::new(
@@ -79,8 +82,27 @@ fn show_node(
                             if key_resp.clicked() {
                                 *clicked = Some(key_path);
                             }
-                            show_value_or_nested(ui, v, &child_path, mode, search, clicked);
-                        });
+                            show_node(ui, v, &child_path, mode, search, clicked, false);
+                        } else {
+                            ui.horizontal(|ui| {
+                                let key_path = build_path(&child_path, mode, "res");
+                                let key_resp = ui.add(
+                                    egui::Label::new(
+                                        egui::RichText::new(format!("{}:", k))
+                                            .color(theme::ACCENT),
+                                    )
+                                    .sense(egui::Sense::click()),
+                                );
+                                if key_resp.hovered() {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    key_resp.clone().on_hover_text(&key_path);
+                                }
+                                if key_resp.clicked() {
+                                    *clicked = Some(key_path);
+                                }
+                                show_primitive(ui, v, &child_path, mode, search, clicked);
+                            });
+                        }
                         let _ = i;
                     }
                     if total > max_draw {
@@ -110,11 +132,14 @@ fn show_node(
                         )
                     };
                     let path_str = build_path(path, mode, "res");
+                    let mut rich = egui::RichText::new(label.clone()).color(theme::TEXT_SECONDARY);
+                    let is_match = !search.is_empty() && (matches_search(&label, search) || matches_search(&path_str, search));
+                    if is_match {
+                        rich = rich.underline().background_color(egui::Color32::from_rgba_unmultiplied(255, 255, 0, 60));
+                    }
                     let resp = ui.add(
-                        egui::Label::new(
-                            egui::RichText::new(label).color(theme::TEXT_SECONDARY),
-                        )
-                        .sense(egui::Sense::click()),
+                        egui::Label::new(rich)
+                            .sense(egui::Sense::click()),
                     );
                     if resp.hovered() {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -130,13 +155,18 @@ fn show_node(
                     for i in 0..max_draw {
                         let mut child_path = path.to_vec();
                         child_path.push(PathSegment::index(i));
-                        ui.horizontal(|ui| {
-                            ui.label(
-                                egui::RichText::new(format!("[{}]", i))
-                                    .color(theme::TEXT_SECONDARY),
-                            );
-                            show_value_or_nested(ui, &arr[i], &child_path, mode, search, clicked);
-                        });
+                        let v = &arr[i];
+                        if matches!(v, Value::Object(_) | Value::Array(_)) {
+                            show_node(ui, v, &child_path, mode, search, clicked, false);
+                        } else {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    egui::RichText::new(format!("[{}]", i))
+                                        .color(theme::TEXT_SECONDARY),
+                                );
+                                show_primitive(ui, v, &child_path, mode, search, clicked);
+                            });
+                        }
                     }
                     if total > max_draw {
                         ui.label(
@@ -184,11 +214,17 @@ fn show_primitive(
         _ => (value.to_string(), theme::TEXT_PRIMARY),
     };
 
-    let _ = search; // reserved for future dimming of non-matches
-
     let path_str = build_path(path, mode, "res");
+    let is_match = matches_search(&text, search) || matches_search(&path_str, search);
+    let mut rich = egui::RichText::new(text).color(color).monospace();
+    if !search.is_empty() && is_match {
+        rich = rich.underline().background_color(egui::Color32::from_rgba_unmultiplied(255, 255, 0, 60));
+    } else if !search.is_empty() && !is_match {
+        // dim non-matching for better visibility
+        rich = rich.color(egui::Color32::from_gray(160));
+    }
     let resp = ui.add(
-        egui::Label::new(egui::RichText::new(text).color(color).monospace())
+        egui::Label::new(rich)
             .sense(egui::Sense::click()),
     );
     if resp.hovered() {
@@ -216,6 +252,13 @@ fn path_id(path: &[PathSegment]) -> String {
         })
         .collect::<Vec<_>>()
         .join(".")
+}
+
+fn matches_search(text: &str, search: &str) -> bool {
+    if search.is_empty() {
+        return true;
+    }
+    text.to_lowercase().contains(&search.to_lowercase())
 }
 
 const COLOR_STRING: egui::Color32 = egui::Color32::from_rgb(0xCE, 0x91, 0x78);

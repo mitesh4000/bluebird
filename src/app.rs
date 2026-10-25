@@ -5,6 +5,7 @@ use crate::http::{self, AppSettings, HistoryEntry, RequestSpec, ResponseData, Sa
 use crate::jsonpath::CopyMode;
 use crate::storage::Database;
 use crate::ui::{
+    icons,
     request_pane::{self, RequestPaneState},
     response_pane::{self, ResponsePaneState},
     shortcuts_help, theme, toast,
@@ -125,6 +126,9 @@ impl BluebirdApp {
     }
 
     fn send_request(&mut self) {
+        if self.sending {
+            return;
+        }
         let tab = &self.tabs[self.active];
         if tab.spec.url.trim().is_empty() {
             self.toasts.error("Invalid URL.");
@@ -213,22 +217,7 @@ impl BluebirdApp {
         }
         match parse_curl(&url) {
             Ok(result) => {
-                if self.tabs[self.active].dirty
-                    || !self.prev_url.is_empty()
-                        && !looks_like_curl(&self.prev_url)
-                        && self.prev_url != url
-                {
-                    self.pending_curl = Some(result.spec);
-                    // Stash warnings on banner after confirm
-                    if result.warnings.is_empty() {
-                        self.curl_banner = Some(CurlBanner::Success);
-                    } else {
-                        self.curl_banner = Some(CurlBanner::Partial(result.warnings));
-                    }
-                    self.show_replace_prompt = true;
-                } else {
-                    self.apply_curl(result.spec, result.warnings);
-                }
+                self.apply_curl(result.spec, result.warnings);
             }
             Err(e) => {
                 self.curl_banner = Some(CurlBanner::Failure(e.to_string()));
@@ -257,13 +246,22 @@ impl BluebirdApp {
     }
 
     fn close_tab(&mut self) {
+        self.close_tab_at(self.active);
+    }
+
+    fn close_tab_at(&mut self, index: usize) {
+        if index >= self.tabs.len() {
+            return;
+        }
         if self.tabs.len() <= 1 {
             self.tabs[0] = Tab::new("Request 1");
             self.active = 0;
             return;
         }
-        self.tabs.remove(self.active);
-        if self.active >= self.tabs.len() {
+        self.tabs.remove(index);
+        if self.active > index {
+            self.active -= 1;
+        } else if self.active >= self.tabs.len() {
             self.active = self.tabs.len() - 1;
         }
     }
@@ -362,12 +360,6 @@ impl eframe::App for BluebirdApp {
                         self.save_name = self.tabs[self.active].name.clone();
                         ui.close_menu();
                     }
-                    if ui.button("Clear history").clicked() {
-                        let _ = self.db.clear_history();
-                        self.history.clear();
-                        self.toasts.info("History cleared.");
-                        ui.close_menu();
-                    }
                     if ui.button("Quit").clicked() {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     }
@@ -399,13 +391,16 @@ impl eframe::App for BluebirdApp {
                         ui.close_menu();
                     }
                 });
-                if ui.button("?").on_hover_text("Shortcuts (Ctrl+/)").clicked() {
+                if ui
+                    .add(egui::Button::new(icons::HELP).frame(false))
+                    .on_hover_text("Keyboard shortcuts (Ctrl+/)")
+                    .clicked()
+                {
                     self.show_shortcuts = true;
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label(
                         egui::RichText::new("Bluebird")
-                            .color(theme::ACCENT)
                             .strong(),
                     );
                 });
@@ -418,24 +413,6 @@ impl eframe::App for BluebirdApp {
                 .default_width(240.0)
                 .resizable(true)
                 .show(ctx, |ui| {
-                    ui.heading("History");
-                    if ui.small_button("Clear").clicked() {
-                        let _ = self.db.clear_history();
-                        self.history.clear();
-                    }
-                    egui::ScrollArea::vertical()
-                        .id_salt("hist")
-                        .max_height(ui.available_height() * 0.5)
-                        .show(ui, |ui| {
-                            for h in &self.history.clone() {
-                                let label = format!("{} {} {}", h.method, h.status.map(|s| s.to_string()).unwrap_or_else(|| "-".into()), truncate(&h.url, 40));
-                                if ui.selectable_label(false, label).clicked() {
-                                    self.tabs[self.active].spec.method = h.method.clone();
-                                    self.tabs[self.active].spec.url = h.url.clone();
-                                }
-                            }
-                        });
-                    ui.separator();
                     ui.heading("Saved");
                     egui::ScrollArea::vertical().id_salt("saved").show(ui, |ui| {
                         let saved = self.saved.clone();
@@ -449,7 +426,11 @@ impl eframe::App for BluebirdApp {
                                         self.tabs[self.active].name = s.name.clone();
                                     }
                                 }
-                                if ui.small_button("×").clicked() {
+                                if ui
+                                    .add(egui::Button::new(icons::DELETE).frame(false))
+                                    .on_hover_text("Delete saved request")
+                                    .clicked()
+                                {
                                     let _ = self.db.delete_saved(&s.id);
                                     self.saved = self.db.list_saved().unwrap_or_default();
                                 }
@@ -460,19 +441,36 @@ impl eframe::App for BluebirdApp {
         }
 
         // Tabs bar
+        let mut close_tab_request = None;
         egui::TopBottomPanel::top("tabs").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 for i in 0..self.tabs.len() {
                     let name = self.tabs[i].name.clone();
-                    if ui.selectable_label(self.active == i, name).clicked() {
+                    let selected = self.active == i;
+                    if ui.selectable_label(selected, name).clicked() {
                         self.active = i;
                     }
+                    if ui
+                        .add(egui::Button::new(icons::CLOSE).frame(false))
+                        .on_hover_text("Close tab (Ctrl+W)")
+                        .clicked()
+                    {
+                        close_tab_request = Some(i);
+                    }
+                    ui.add_space(4.0);
                 }
-                if ui.small_button("+").on_hover_text("New tab (Ctrl+T)").clicked() {
+                if ui
+                    .add(egui::Button::new(icons::ADD))
+                    .on_hover_text("New tab (Ctrl+T)")
+                    .clicked()
+                {
                     self.new_tab();
                 }
             });
         });
+        if let Some(index) = close_tab_request {
+            self.close_tab_at(index);
+        }
 
         // Central: request + response split
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -503,7 +501,11 @@ impl eframe::App for BluebirdApp {
                             );
                         }
                     }
-                    if ui.small_button("Dismiss").clicked() {
+                    if ui
+                        .add(egui::Button::new(icons::CLOSE).frame(false))
+                        .on_hover_text("Dismiss")
+                        .clicked()
+                    {
                         dismiss_banner = true;
                     }
                 });
@@ -527,9 +529,9 @@ impl eframe::App for BluebirdApp {
                         };
                         if actions.url_changed {
                             self.tabs[self.active].dirty = true;
-                            // Debounce-ish: import when looks like curl
+                            // Import when looks like curl
                             let url = self.tabs[self.active].spec.url.clone();
-                            if looks_like_curl(&url) && url != self.prev_url {
+                            if looks_like_curl(&url) {
                                 self.try_import_curl();
                             }
                             self.prev_url = url;
@@ -542,6 +544,10 @@ impl eframe::App for BluebirdApp {
                         }
                         if actions.copy_curl {
                             self.copy_curl(ctx);
+                        }
+                        if actions.save {
+                            self.show_save = true;
+                            self.save_name = self.tabs[self.active].name.clone();
                         }
                     });
             });
@@ -565,38 +571,6 @@ impl eframe::App for BluebirdApp {
         });
 
         // Dialogs — extract data before closures to avoid overlapping borrows.
-        if self.show_replace_prompt {
-            let mut do_replace = false;
-            let mut do_cancel = false;
-            egui::Window::new("Replace current request?")
-                .collapsible(false)
-                .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
-                .show(ctx, |ui| {
-                    ui.label("Replace current request with imported curl?");
-                    ui.horizontal(|ui| {
-                        if ui.button("Replace").clicked() {
-                            do_replace = true;
-                        }
-                        if ui.button("Cancel").clicked() {
-                            do_cancel = true;
-                        }
-                    });
-                });
-            if do_replace {
-                let warnings = match &self.curl_banner {
-                    Some(CurlBanner::Partial(w)) => w.clone(),
-                    _ => Vec::new(),
-                };
-                if let Some(spec) = self.pending_curl.take() {
-                    self.apply_curl(spec, warnings);
-                }
-                self.show_replace_prompt = false;
-            } else if do_cancel {
-                self.pending_curl = None;
-                self.show_replace_prompt = false;
-                self.curl_banner = None;
-            }
-        }
 
         if self.show_save {
             egui::Window::new("Save request")
@@ -604,24 +578,50 @@ impl eframe::App for BluebirdApp {
                 .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
                 .show(ctx, |ui| {
                     ui.label("Name:");
-                    ui.text_edit_singleline(&mut self.save_name);
+                    let input = ui.add_sized(
+                        [320.0, theme::CONTROL_HEIGHT],
+                        egui::TextEdit::singleline(&mut self.save_name)
+                            .hint_text("Request name")
+                            .vertical_align(egui::Align::Center),
+                    );
+                    // Single-input workflow: Enter submits without reaching for
+                    // the Save button. The TextEdit loses focus on Enter.
+                    let enter_pressed =
+                        input.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let mut submit = enter_pressed;
                     ui.horizontal(|ui| {
-                        if ui.button("Save").clicked() {
-                            let name = self.save_name.trim();
-                            if !name.is_empty() {
-                                let spec = self.tabs[self.active].spec.clone();
-                                if let Ok(id) = self.db.save_request(name, &spec) {
-                                    let _ = id;
-                                    self.saved = self.db.list_saved().unwrap_or_default();
-                                    self.toasts.success("Request saved.");
-                                    self.show_save = false;
-                                }
-                            }
+                        if ui
+                            .add_sized(
+                                [96.0, theme::CONTROL_HEIGHT],
+                                egui::Button::new(icons::with_label(icons::SAVE, "Save")),
+                            )
+                            .on_hover_text("Save (Enter)")
+                            .clicked()
+                        {
+                            submit = true;
                         }
-                        if ui.button("Cancel").clicked() {
+                        if ui
+                            .add_sized(
+                                [96.0, theme::CONTROL_HEIGHT],
+                                egui::Button::new(icons::with_label(icons::CANCEL, "Cancel")),
+                            )
+                            .clicked()
+                        {
                             self.show_save = false;
                         }
                     });
+                    if submit {
+                        let name = self.save_name.trim();
+                        if !name.is_empty() {
+                            let spec = self.tabs[self.active].spec.clone();
+                            if let Ok(id) = self.db.save_request(name, &spec) {
+                                let _ = id;
+                                self.saved = self.db.list_saved().unwrap_or_default();
+                                self.toasts.success("Request saved.");
+                                self.show_save = false;
+                            }
+                        }
+                    }
                 });
         }
 

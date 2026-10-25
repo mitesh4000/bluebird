@@ -14,38 +14,23 @@ pub const ACCENT_PRESSED: Color32 = Color32::from_rgb(0x1F, 0x6F, 0xE0);
 pub const SUCCESS: Color32 = Color32::from_rgb(0x2E, 0xA0, 0x43);
 pub const WARNING: Color32 = Color32::from_rgb(0xD2, 0x99, 0x22);
 pub const ERROR: Color32 = Color32::from_rgb(0xF8, 0x51, 0x49);
+
+/// Shared height for single-line inputs and their adjacent action buttons.
+/// Using one token keeps rows visually aligned instead of letting egui size
+/// each widget from its own text/padding metrics.
+pub const CONTROL_HEIGHT: f32 = 32.0;
+
 pub fn highlight_hover() -> Color32 {
     Color32::from_rgba_unmultiplied(0x2F, 0x81, 0xF7, 36)
 }
 
 pub fn apply(ctx: &egui::Context) {
-    let mut visuals = Visuals::dark();
-    visuals.panel_fill = BG_BASE;
-    visuals.window_fill = BG_SURFACE;
-    visuals.extreme_bg_color = BG_BASE;
-    visuals.faint_bg_color = BG_ELEVATED;
-    visuals.widgets.noninteractive.bg_fill = BG_SURFACE;
-    visuals.widgets.inactive.bg_fill = BG_ELEVATED;
-    visuals.widgets.hovered.bg_fill = Color32::from_rgb(0x22, 0x2C, 0x3C);
-    visuals.widgets.active.bg_fill = ACCENT_PRESSED;
-    visuals.widgets.open.bg_fill = BG_ELEVATED;
-    visuals.selection.bg_fill = Color32::from_rgba_unmultiplied(0x2F, 0x81, 0xF7, 80);
-    visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, TEXT_SECONDARY);
-    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
-    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
-    visuals.widgets.active.fg_stroke = Stroke::new(1.0_f32, TEXT_PRIMARY);
-    visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-    visuals.widgets.inactive.bg_stroke = Stroke::new(1.0_f32, BORDER);
-    visuals.widgets.hovered.bg_stroke = Stroke::new(1.0_f32, ACCENT);
-    visuals.hyperlink_color = ACCENT;
-    visuals.warn_fg_color = WARNING;
-    visuals.error_fg_color = ERROR;
-    visuals.window_stroke = Stroke::new(1.0_f32, BORDER);
-    ctx.set_visuals(visuals);
+    ctx.set_visuals(Visuals::light());
 
     let mut style = (*ctx.style()).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
     style.spacing.button_padding = egui::vec2(10.0, 5.0);
+    style.spacing.interact_size.y = CONTROL_HEIGHT;
     ctx.set_style(style);
 }
 
